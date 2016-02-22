@@ -37,8 +37,9 @@
 
 -record(state, { pid,
                  bucket,
-                 last_key,
+                 last_key=undefined,
                  batch_size,
+                 set_val_gen_name=undefined,
                  preload,
                  preloaded_sets,
                  preloaded_sets_num,
@@ -58,17 +59,19 @@
 new(Id) ->
     case code:which(riakc_pb_socket) of
         non_existing ->
-            ?FAIL_MSG("~s requires riakc_pb_socket module to be available on code path.\n",
-                      [?MODULE]);
+            ?FAIL_MSG("~s requires riakc_pb_socket module to be available" ++
+                          "on code path.\n", [?MODULE]);
         _ ->
             ok
     end,
 
-    Ips  = basho_bench_config:get(riakc_dt_pb_ips, [{127,0,0,1}]),
-    Port  = basho_bench_config:get(riakc_dt_pb_port, 8087),
-    Bucket  = basho_bench_config:get(riakc_dt_pb_bucket, {<<"riak_dt">>,
-                                                          <<"test">>}),
-    BatchSize = basho_bench_config:get(riakc_dt_pb_sets_batchsize, 100),
+    Ips  = basho_bench_config:get(riakc_dt_ips, [{127,0,0,1}]),
+    Port  = basho_bench_config:get(riakc_dt_port, 8087),
+    Bucket  = basho_bench_config:get(riakc_dt_bucket, {<<"riak_dt">>,
+                                                       <<"test">>}),
+    BatchSize = basho_bench_config:get(riakc_dt_sets_batchsize, 100),
+    SetValGenName = basho_bench_config:get(riakc_dt_preload_valgen_name,
+                                           undefined),
     Preload = basho_bench_config:get(riakc_dt_preload_sets, false),
     PreloadNum = basho_bench_config:get(riakc_dt_preload_sets_num, 10),
     MaxValsForPreloadSet = basho_bench_config:get(
@@ -84,7 +87,7 @@ new(Id) ->
                   end,
 
     ValueGenTup = basho_bench_config:get(value_generator),
-    StartBinSize = set_start_bin_size(ValueGenTup),
+    StartBinSize = basho_bench_riak_dt_util:set_start_bin_size(ValueGenTup),
 
     PreloadedSets = if Preload ->
                             [begin X1 = integer_to_binary(X),
@@ -115,8 +118,8 @@ new(Id) ->
             end,
             {ok, #state{ pid = Pid,
                          bucket = Bucket,
-                         last_key=undefined,
                          batch_size = BatchSize,
+                         set_val_gen_name=SetValGenName,
                          preload = Preload,
                          preloaded_sets = PreloadedSets,
                          preloaded_sets_num = PreloadNum,
@@ -184,11 +187,16 @@ run({set, modify}, KeyGen, ValueGen, #state{pid=Pid, bucket=Bucket}=State) ->
     SetFun = fun(S) -> riakc_set:add_element(Val, S) end,
     modify_type(Pid, Bucket, SetKey, SetFun, State);
 
-%% Note: Make sure to not use sequential for keys when run
-run({set, batch_insert}, KeyGen, ValueGen, #state{pid=Pid, bucket=Bucket,
-                                                  last_key=LastKey,
-                                                  batch_size=BatchSize}=State) ->
-    {SetKey, Members} = gen_set_batch(KeyGen, ValueGen, LastKey, BatchSize),
+%% Note: Make sure to not use sequential for keys when run, unless
+%%       supplying a specific SetValGenName.
+run({set, batch_insert}, KeyGen, ValueGen,
+    #state{pid=Pid, bucket=Bucket, last_key=LastKey, batch_size=BatchSize,
+           set_val_gen_name=SetValGenName}=State) ->
+    {SetKey, Members} = basho_bench_riak_dt_util:gen_set_batch(KeyGen,
+                                                               ValueGen,
+                                                               LastKey,
+                                                               BatchSize,
+                                                               SetValGenName),
     Set0 = riakc_set:new(),
     SetLast = lists:foldl(fun(Elem, Sets) ->
                               Sets ++ [riakc_set:add_element(Elem, Set0)]
@@ -425,44 +433,6 @@ run({map, read}, KeyGen, ValueGen, #state{pid=Pid, bucket=Bucket}=State) ->
 get_connect_options() ->
     basho_bench_config:get(pb_connect_options, [{auto_reconnect, true}]).
 
-%% @private generate a tuple w/ a set-key and a batch of members from the valgen
-%%          NOTE: to be used w/ non-sequential `key_generator` keygen, otherwise
-%%          the reset for the exausted valgen will reset the key_generator
-gen_set_batch(KeyGen, ValueGen, LastKey, BatchSize) ->
-    case {LastKey, gen_members(BatchSize, ValueGen)} of
-        {_, []} ->
-            %% Exhausted value gen, new key
-            Key = KeyGen(),
-            ?DEBUG("New set ~p~n", [Key]),
-            basho_bench_keygen:reset_sequential_int_state(),
-            {Key, gen_members(BatchSize, ValueGen)};
-        {undefined, List} ->
-            %% We have no active set, so generate a
-            %% key. First run maybe
-            Key = KeyGen(),
-            ?DEBUG("New set ~p~n", [Key]),
-            {Key, List};
-        Else ->
-            Else
-    end.
-
-%% @private generate as many elements as we can from the valgen, if it
-%% exhausts, return the results we did get.
-gen_members(BatchSize, ValueGen) ->
-    accumulate_members(BatchSize, ValueGen, []).
-
-%% @private generate as many elements as we can from the valgen, if it
-%% exhausts, return the results we did get.
-accumulate_members(0, _ValueGen, Acc) ->
-    lists:reverse(Acc);
-accumulate_members(BS, Gen, Acc) ->
-    try
-        accumulate_members(BS-1, Gen, [Gen() | Acc])
-    catch throw:{stop, empty_keygen} ->
-            ?DEBUG("ValGen exhausted~n", []),
-            lists:reverse(Acc)
-    end.
-
 %% @private preload and update riak with an N-number of set keys,
 %% named in range <<"1..Nset">>.
 preload_sets(Pid, PreloadKeys, Bucket, StartBinSize) ->
@@ -521,33 +491,6 @@ run_one_map(Pid, Bucket) ->
         _ ->
             ?INFO("~p Already Loaded", [?DEFAULT_MAP_KEY])
     end.
-
-%% @private starter binary size for set-preload.
-set_start_bin_size(VGTup) ->
-    StartBinSize =
-        case VGTup of
-            {var_bin_set, Lambda, _, poisson} ->
-                basho_bench_valgen:poisson(Lambda);
-            {var_bin_set, Lambda, LambdaThresh, _, poisson} ->
-                basho_bench_valgen:poisson(Lambda, LambdaThresh);
-            {var_bin_set, Min, Mean, _, exponential} ->
-                basho_bench_valgen:exponential(Min, Mean);
-            {var_bin_set, Min, Max, _} ->
-                crypto:rand_uniform(Min, Max+1);
-            {uniform_bin, Min, Max} ->
-                crypto:rand_uniform(Min, Max+1);
-            {exponential_bin, Min, Mean} ->
-                basho_bench_valgen:exponential(Min, Mean);
-            {fixed_bin_set, Size, _} ->
-                Size;
-            {_, Min, Max} when is_integer(Min), is_integer(Max) ->
-                crypto:rand_uniform(Min, Max+1);
-            {_, Size} when is_integer(Size) ->
-                Size;
-            _ -> 4
-        end,
-    ?DEBUG("StartBinSize: ~p\n", [StartBinSize]),
-    StartBinSize.
 
 %% @private fetch helper for read, remove, is_element runs
 fetch_action(Pid, Bucket, Key, ValueGen, State, Action) ->

@@ -32,6 +32,7 @@
 -include("basho_bench.hrl").
 
 -define(DEFAULT_SET_KEY, <<"bench_set">>).
+-define(SET_TYPE, riak_dt_orswot).
 
 -record(state, { client,
                  bucket,
@@ -147,12 +148,18 @@ run(read, KeyGen, _ValueGen, State) ->
     Key = KeyGen(),
     read_set(Key, State);
 
+run(insert_no_ctx, _KeyGen, ValueGen, #state{run_one_set=true}=State) ->
+    Member = ValueGen(),
+    add_element(?DEFAULT_SET_KEY, Member, State);
+run(insert_no_ctx, KeyGen, ValueGen, State) ->
+    run(insert, KeyGen, ValueGen, State);
+
 run(insert, _KeyGen, ValueGen, #state{run_one_set=true,
                                       client=C, bucket=B}=State) ->
     case C:get(B, ?DEFAULT_SET_KEY, []) of
         {ok, Res} ->
             Member = ValueGen(),
-            {{Ctx, _Values}, _Stats} = riak_kv_crdt:value(Res, riak_dt_orswot),
+            {{Ctx, _Values}, _Stats} = riak_kv_crdt:value(Res, ?SET_TYPE),
             add_element(?DEFAULT_SET_KEY, Member, Ctx, State);
         {error, notfound} ->
             {ok, State};
@@ -173,9 +180,8 @@ run(insert, _KeyGen, ValueGen,
     case C:get(B, Key, []) of
         {ok, Res} ->
             Member = ValueGen(),
-            {{Ctx, Values}, _Stats} = riak_kv_crdt:value(Res, riak_dt_orswot),
+            {{Ctx, Values}, _Stats} = riak_kv_crdt:value(Res, ?SET_TYPE),
             SetSize = length(Values),
-            lager:info("Vals: ~p", [SetSize]),
             if SetSize < MaxValsForPreloadSet ->
                     add_element(Key, Member, Ctx, State);
                true -> {ok, State#state{last_preload_nth=NextNth}}
@@ -223,8 +229,8 @@ run(batch_insert, KeyGen, ValueGen, State) ->
                                                             SVGN),
     State2 = State#state{last_key=Set},
 
-    O = riak_kv_crdt:new(B, Set, riak_dt_orswot),
-    Opp = riak_kv_crdt:operation(riak_dt_orswot, {add_all, Members}, undefined),
+    O = riak_kv_crdt:new(B, Set, ?SET_TYPE),
+    Opp = riak_kv_crdt:operation(?SET_TYPE, {add_all, Members}, undefined),
     Options1 = [{crdt_op, Opp}],
     case C:put(O, Options1) of
         ok ->
@@ -248,11 +254,10 @@ run(remove, KeyGen, ValueGen, State) ->
     Member = ValueGen(),
     remove_element(Key, Member, State);
 
-run(remove_last_read, KeyGen, ValueGen,
-    #state{remove_set=undefined}=State) ->
+run(remove_last_read, KeyGen, ValueGen, #state{remove_set=undefined}=State) ->
     Key = KeyGen(),
     Member = ValueGen(),
-    remove_element(Key, Member, undefined, State);
+    remove_element(Key, ValueGen, State);
 run(remove_last_read, _KeyGen, _ValueGen, State) ->
     #state{remove_set=Key, remove_ctx=Ctx,
            remove_value=RemoveVal}=State,
@@ -317,8 +322,8 @@ ping_each([Node | Rest]) ->
 add_element(Key, Val, State) ->
     add_element(Key, Val, undefined, State).
 add_element(Key, Val, Ctx, #state{client=C, bucket=B}=State) ->
-    O = riak_kv_crdt:new(B, Key, riak_dt_orswot),
-    Opp = riak_kv_crdt:operation(riak_dt_orswot, {add, Val}, Ctx),
+    O = riak_kv_crdt:new(B, Key, ?SET_TYPE),
+    Opp = riak_kv_crdt:operation(?SET_TYPE, {add, Val}, Ctx),
     Options1 = [{crdt_op, Opp}],
     case C:put(O, Options1) of
         ok ->
@@ -327,11 +332,22 @@ add_element(Key, Val, Ctx, #state{client=C, bucket=B}=State) ->
             {error, Reason, State}
     end.
 
-remove_element(Key, Val, State) ->
-    remove_element(Key, Val, undefined, State).
+remove_element(Key, Val, #state{client=C, bucket=B}=State) ->
+    %% Force getting a context for remove.
+    case C:get(B, Key, []) of
+        {ok, Res} ->
+            {{Ctx, _Values}, _Stats} = riak_kv_crdt:value(Res, ?SET_TYPE),
+            remove_element(Key, Val, Ctx, State);
+        {error, notfound} ->
+            {ok, State};
+        {error, Reason} ->
+            {error, Reason, State}
+    end.
+remove_element(Key, Val, undefined, State) ->
+    remove_element(Key, Val, State);
 remove_element(Key, Val, Ctx, #state{client=C, bucket=B}=State) ->
-    O = riak_kv_crdt:new(B, Key, riak_dt_orswot),
-    Opp = riak_kv_crdt:operation(riak_dt_orswot, {remove, Val}, Ctx),
+    O = riak_kv_crdt:new(B, Key, ?SET_TYPE),
+    Opp = riak_kv_crdt:operation(?SET_TYPE, {remove, Val}, Ctx),
     Options1 = [{crdt_op, Opp}],
     case C:put(O, Options1) of
         ok ->
@@ -345,7 +361,7 @@ remove_element(Key, Val, Ctx, #state{client=C, bucket=B}=State) ->
 read_set(Key, #state{client=C, bucket=B}=State) ->
     case C:get(B, Key, []) of
         {ok, Res} ->
-            {{Ctx, Values}, _Stats} = riak_kv_crdt:value(Res, riak_dt_orswot),
+            {{Ctx, Values}, _Stats} = riak_kv_crdt:value(Res, ?SET_TYPE),
             RemoveVal = basho_bench_riak_dt_util:random_element(Values),
             %% Store the latest Ctx/State for a remove
             {ok, State#state{remove_set=Key,

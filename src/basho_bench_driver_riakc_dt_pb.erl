@@ -138,6 +138,15 @@ new(Id) ->
 %%% Sets
 %%%===================================================================\
 
+run({set, insert_no_ctx}, _KeyGen, ValueGen, #state{pid=Pid, bucket=Bucket,
+                                                    run_one_set=true}=State) ->
+    Val = ValueGen(),
+    Set0 = riakc_set:new(),
+    Set1 = riakc_set:add_element(Val, Set0),
+    update_type(Pid, Bucket, ?DEFAULT_SET_KEY, {set, Set1}, State);
+run({set, insert_no_ctx}, KeyGen, ValueGen, State) ->
+    run({set, insert}, KeyGen, ValueGen, State);
+
 run({set, insert}, _KeyGen, ValueGen, #state{pid=Pid, bucket=Bucket,
                                              run_one_set=true}=State) ->
     case riakc_pb_socket:fetch_type(Pid, Bucket, ?DEFAULT_SET_KEY) of

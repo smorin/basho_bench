@@ -253,6 +253,16 @@ run({set, is_element}, KeyGen, ValueGen, #state{pid=Pid, bucket=Bucket}=State) -
 %%% Maps
 %%%===================================================================
 
+run({map, set, insert_no_ctx}, _KeyGen, ValueGen, #state{pid=Pid, bucket=Bucket,
+                                                         run_one_map=true}=State) ->
+    Val = ValueGen(),
+    Map = riakc_map:new(),
+    MapWSet = map_set(Map, Val),
+    update_type(Pid, Bucket, ?DEFAULT_MAP_KEY, {map, MapWSet}, State);
+
+run({map, set, insert_no_ctx}, KeyGen, ValueGen, State) ->
+    run({map, set, insert}, KeyGen, ValueGen, State);
+
 run({map, set, insert}, _KeyGen, ValueGen, #state{pid=Pid, bucket=Bucket,
                                                   run_one_map=true}=State) ->
     Val = ValueGen(),
@@ -296,6 +306,16 @@ run({map, set, remove}, KeyGen, ValueGen, #state{pid=Pid, bucket=Bucket}=State) 
     MapFun = fun(M) -> map_set_remove(M, Val) end,
     modify_type(Pid, Bucket, MapKey, MapFun, State, [{create, false}]);
 
+run({map, register, insert_no_ctx}, _KeyGen, ValueGen, #state{pid=Pid, bucket=Bucket,
+                                                              run_one_map=true}=State) ->
+    Val = ValueGen(),
+    Map = riakc_map:new(),
+    MapWReg = map_register(Map, Val),
+    update_type(Pid, Bucket, ?DEFAULT_MAP_KEY, {map, MapWReg}, State);
+
+run({map, register, insert_no_ctx}, KeyGen, ValueGen, State) ->
+    run({map, register, insert}, KeyGen, ValueGen, State);
+
 run({map, register, insert}, _KeyGen, ValueGen, #state{pid=Pid, bucket=Bucket,
                                                        run_one_map=true}=State) ->
     Val = ValueGen(),
@@ -321,6 +341,15 @@ run({map, register, modify}, KeyGen, ValueGen, #state{pid=Pid, bucket=Bucket}=St
     MapFun = fun(M) -> map_register(M, Val) end,
     modify_type(Pid, Bucket, MapKey, MapFun, State);
 
+run({map, flag, insert_no_ctx}, _KeyGen, _ValueGen, #state{pid=Pid, bucket=Bucket,
+                                                           run_one_map=true}=State) ->
+    Map = riakc_map:new(),
+    MapWFlag = map_flag(Map),
+    update_type(Pid, Bucket, ?DEFAULT_MAP_KEY, {map, MapWFlag}, State);
+
+run({map, flag, insert_no_ctx}, KeyGen, ValueGen, State) ->
+    run({map, flag, insert}, KeyGen, ValueGen, State);
+
 run({map, flag, insert}, _KeyGen, ValueGen, #state{pid=Pid, bucket=Bucket,
                                                    run_one_map=true}=State) ->
     FetchedMap = fetch_action(Pid, Bucket, ?DEFAULT_MAP_KEY, ValueGen, State,
@@ -342,6 +371,15 @@ run({map, flag, modify}, KeyGen, _ValueGen, #state{pid=Pid, bucket=Bucket}=State
     MapKey = KeyGen(),
     MapFun = fun(M) -> map_flag(M) end,
     modify_type(Pid, Bucket, MapKey, MapFun, State);
+
+run({map, counter, insert_no_ctx}, _KeyGen, _ValueGen, #state{pid=Pid, bucket=Bucket,
+                                                              run_one_map=true}=State) ->
+    Map = riakc_map:new(),
+    MapWCnt = map_counter(Map),
+    update_type(Pid, Bucket, ?DEFAULT_MAP_KEY, {map, MapWCnt}, State);
+
+run({map, counter, insert_no_ctx}, KeyGen, ValueGen, State) ->
+    run({map, counter, insert}, KeyGen, ValueGen, State);
 
 run({map, counter, insert}, _KeyGen, ValueGen, #state{pid=Pid, bucket=Bucket,
                                                       run_one_map=true}=State) ->
@@ -365,6 +403,16 @@ run({map, counter, modify}, KeyGen, _ValueGen, #state{pid=Pid, bucket=Bucket}=St
     MapKey = KeyGen(),
     MapFun = fun(M) -> map_counter(M) end,
     modify_type(Pid, Bucket, MapKey, MapFun, State);
+
+run({map, map, insert_no_ctx}, _KeyGen, ValueGen, #state{pid=Pid, bucket=Bucket,
+                                                         run_one_map=true}=State) ->
+    Val = ValueGen(),
+    Map = riakc_map:new(),
+    MapWMap = map_map(Map, Val),
+    update_type(Pid, Bucket, ?DEFAULT_MAP_KEY, {map, MapWMap}, State);
+
+run({map, map, insert_no_ctx}, KeyGen, ValueGen, State) ->
+    run({map, map, insert}, KeyGen, ValueGen, State);
 
 run({map, map, insert}, _KeyGen, ValueGen, #state{pid=Pid, bucket=Bucket,
                                                   run_one_map=true}=State) ->
@@ -390,6 +438,25 @@ run({map, map, modify}, KeyGen, ValueGen, #state{pid=Pid, bucket=Bucket}=State) 
     Val = ValueGen(),
     MapFun = fun(M) -> map_map(M, Val) end,
     modify_type(Pid, Bucket, MapKey, MapFun, State);
+
+run({map, multi_ops, insert_no_ctx}, KeyGen, ValueGen, #state{map_multi_ops=[]}=State) ->
+    run({map, multi_ops, insert}, KeyGen, ValueGen, State);
+
+run({map, multi_ops, insert_no_ctx}, _KeyGen, ValueGen,
+    #state{pid=Pid, bucket=Bucket, run_one_map=true, map_multi_ops=Ops}=State) ->
+    Val = ValueGen(),
+    Map = riakc_map:new(),
+    MapWOps = map_multi(Map, Val, Ops),
+    update_type(Pid, Bucket, ?DEFAULT_MAP_KEY, {map, MapWOps}, State);
+
+run({map, multi_ops, insert_no_ctx}, KeyGen, ValueGen, State) ->
+    run({map, multi_ops, insert}, KeyGen, ValueGen, State);
+
+run({map, multi_ops, insert}, _KeyGen, ValueGen, #state{pid=Pid, bucket=Bucket,
+                                                        map_multi_ops=[],
+                                                        run_one_map=true}=State) ->
+    %% If No Ops, treat as read
+    fetch_action(Pid, Bucket, ?DEFAULT_MAP_KEY, ValueGen, State, read);
 
 run({map, multi_ops, insert}, KeyGen, ValueGen, #state{pid=Pid, bucket=Bucket,
                                                        map_multi_ops=[]}=State) ->

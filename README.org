@@ -61,6 +61,35 @@ null device
 $ open tests/current/summary.png
 #+END_SRC
 
+
+** Usage
+
+   Run the basho_bench script, pass in the config file and the directory to generate the results into:
+
+#+BEGIN_SRC shell
+$ ./basho_bench --results-dir <results dir> <config file>
+#+END_SRC
+
+   If you've installed basho_bench from a pre-built package, you must specify full paths for the test results directory and config file. (Also, don't use the common ~/ shell notation, specify the user's home directory explicitly)
+
+#+BEGIN_SRC shell
+$ ./basho_bench --results-dir /home/username/bench_results/ /etc/basho_bench/riakc_pb.config 
+#+END_SRC
+
+   The example above will generate results in =/home/username/bench_results/current/=.
+
+   If you built basho_bench from source, you can get away with relative paths (and the results directory will be created in the current directory):
+
+#+BEGIN_SRC shell
+$ ./basho_bench myconfig.config
+#+END_SRC
+
+   This will generate results in tests/current/. You will need to create a configuration file. The recommended approach is to start from a file in the examples directory and modify settings using the Configuration section below for reference.
+
+
+
+
+
 ** Troubleshooting Graph Generation
 
    If make results fails with the error =/usr/bin/env: Rscript --vanilla: No such file or directory=

@@ -8,13 +8,28 @@ Steve Morin (San Francisco, California, USA)
 Where to find the latest FAQ:
 -----------------------------
 This FAQ can be found at:
-https://github.com/smorin/basho_bench/blob/master/FAQ
+https://github.com/basho/basho_bench/blob/master/FAQ
 
 CONTENTS
 ********
-
+      0)  INSTALL Depedencies
+    0.1)  Mac OS X
       1)  COMPILING and BUILDING
     1.1)  Build Error - Uncaught error in rebar_core: {'EXIT', {undef, [{crypto,start,[]}
+	  2)  Contributing to documentation
+
+
+0)  INSTALL Depedencies
+0.1)  Mac OS X
+    # install brew => http://brew.sh/
+    $ brew install erlang
+    $ brew install rebar
+	
+	%% for R support
+	
+	$ brew tap homebrew/science
+	$ brew install r
+
 
 1)  COMPILING and BUILDING
 
@@ -34,4 +49,6 @@ CONTENTS
                                        {init,start_em,1}]}}
     make: *** [deps] Error 1
 
+2) Contributing to documentation
 
+   Documentation ending in ".org" uses http://orgmode.org/ format.  Read about it here

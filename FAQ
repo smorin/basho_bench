@@ -17,6 +17,7 @@ CONTENTS
       1)  COMPILING and BUILDING
     1.1)  Build Error - Uncaught error in rebar_core: {'EXIT', {undef, [{crypto,start,[]}
 	  2)  Contributing to documentation
+	  3)  Simple HTTP Test
 
 
 0)  INSTALL Depedencies
@@ -52,3 +53,8 @@ CONTENTS
 2) Contributing to documentation
 
    Documentation ending in ".org" uses http://orgmode.org/ format.  Read about it here
+   
+3) Simple HTTP Test
+
+	$ python -m SimpleHTTPServer 8098
+	$ ./basho_bench --results-dir ./test-http ./examples/httpraw.config
